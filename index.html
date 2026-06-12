@@ -1854,14 +1854,15 @@ var WC_STADIUMS=[{"n":"AT&T Stadium","city":"アーリントン (ダラス)","ca
 
 
 <script>
-/* ===== LIVE auto-update from TheSportsDB (free) ===== */
+/* ===== LIVE auto-update: football-data.org via Cloudflare Worker (primary) + TheSportsDB (modal details / fallback) ===== */
 (function(){
+  var API_BASE='https://worldcup2026.hamahk1029.workers.dev';
   var API='https://www.thesportsdb.com/api/v1/json/123/eventsseason.php?id=4429&s=2026';
   var FIN={'FT':1,'AET':1,'PEN':1,'AP':1,'Match Finished':1,'PEN.':1};
   var LIVES={'1H':1,'2H':1,'HT':1,'ET':1,'BT':1,'P':1,'LIVE':1,'In Play':1,'Halftime':1};
   function norm(s){
     s=(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
-    var a={czechrepublic:'czechia',unitedstates:'usa',cotedivoire:'ivorycoast',korearepublic:'southkorea',republicofkorea:'southkorea',democraticrepublicofthecongo:'drcongo',congodr:'drcongo',turkiye:'turkey',caboverde:'capeverde'};
+    var a={czechrepublic:'czechia',unitedstates:'usa',cotedivoire:'ivorycoast',korearepublic:'southkorea',republicofkorea:'southkorea',democraticrepublicofthecongo:'drcongo',congodr:'drcongo',turkiye:'turkey',caboverde:'capeverde',capeverdeislands:'capeverde'};
     return a[s]||s;
   }
   function apply(events){
@@ -1899,13 +1900,48 @@ var WC_STADIUMS=[{"n":"AT&T Stadium","city":"アーリントン (ダラス)","ca
       STANDINGS[g].sort(function(a,b){return b[8]-a[8] || (b[5]-b[6])-(a[5]-a[6]) || b[5]-a[5] || a[0].localeCompare(b[0]);});
     });
   }
+  function applyFD(list){
+    list.forEach(function(e){
+      if(!e.homeTeam||!e.homeTeam.name||!e.awayTeam||!e.awayTeam.name)return;
+      var eh=norm(e.homeTeam.name), ea=norm(e.awayTeam.name);
+      var m=SCHEDULE.find(function(x){return (norm(x.h)===eh&&norm(x.a)===ea)||(norm(x.h)===ea&&norm(x.a)===eh);});
+      if(!m)return;
+      m.fdid=e.id;
+      var fwd=(norm(m.h)===eh);
+      if(e.score&&e.score.fullTime&&e.score.fullTime.home!=null&&e.score.fullTime.away!=null){
+        if(fwd){m.hs=e.score.fullTime.home;m.as=e.score.fullTime.away;}
+        else{m.hs=e.score.fullTime.away;m.as=e.score.fullTime.home;}
+      }
+      if(e.status==='FINISHED'||e.status==='AWARDED'){m.fin=true;m.live=false;m.st='FT';}
+      else if(e.status==='IN_PLAY'){m.live=true;m.fin=false;m.st='LIVE';}
+      else if(e.status==='PAUSED'){m.live=true;m.fin=false;m.st='HT';}
+    });
+  }
   function update(){
-    fetch(API).then(function(r){return r.ok?r.json():null;}).then(function(j){
-      if(!j||!j.events)return;
-      apply(j.events); recompute();
+    fetch(API_BASE+'/fixtures').then(function(r){return r.ok?r.json():Promise.reject('bad');}).then(function(j){
+      if(!j||!j.matches)return Promise.reject('no-matches');
+      applyFD(j.matches); recompute();
       if(typeof renderSchedule==='function')renderSchedule();
       if(typeof renderGroups==='function')renderGroups();
-    }).catch(function(){/* offline: keep built-in data */});
+    }).catch(function(){
+      fetch(API).then(function(r){return r.ok?r.json():null;}).then(function(j){
+        if(!j||!j.events)return;
+        apply(j.events); recompute();
+        if(typeof renderSchedule==='function')renderSchedule();
+        if(typeof renderGroups==='function')renderGroups();
+      }).catch(function(){/* offline: keep built-in data */});
+    });
+  }
+  function updateEids(){
+    fetch(API).then(function(r){return r.ok?r.json():null;}).then(function(j){
+      if(!j||!j.events)return;
+      j.events.forEach(function(e){
+        var eh=norm(e.strHomeTeam), ea=norm(e.strAwayTeam);
+        var m=SCHEDULE.find(function(x){return (norm(x.h)===eh&&norm(x.a)===ea)||(norm(x.h)===ea&&norm(x.a)===eh);});
+        if(!m)return;
+        m.eid=e.idEvent;
+      });
+    }).catch(function(){});
   }
   function luSide(lu,m,isHome){
     var arr=lu.filter(function(p){var ph=(p.strHome!=null&&p.strHome!=='')?(p.strHome==='Yes'):(p.strTeam&&norm(p.strTeam)===norm(m.h)); return ph===isHome;});
@@ -1973,7 +2009,7 @@ var WC_STADIUMS=[{"n":"AT&T Stadium","city":"アーリントン (ダラス)","ca
       box.innerHTML='<div class="lu-title">⏱️ 得点・カード</div>'+rows;
     }).catch(function(){ box.innerHTML=''; });
   };
-  if(typeof SCHEDULE!=='undefined'){ update(); setInterval(update,60000); }
+  if(typeof SCHEDULE!=='undefined'){ update(); setInterval(update,60000); updateEids(); setInterval(updateEids,300000); }
 })();
 </script>
 </body></html>
