@@ -321,6 +321,15 @@ body{font-family:'Helvetica Neue',Arial,'Hiragino Kaku Gothic ProN',Meiryo,sans-
 .st-name{display:block;font-size:.62rem;color:var(--muted);margin-bottom:2px}
 .st-bar{display:block;height:5px;background:#e6371f22;border-radius:3px;overflow:hidden;background:#e0e6ef}
 .st-bar-h{display:block;height:100%;background:var(--navy)}
+
+/* ── match timeline (goals/cards) ── */
+.tl-row{display:flex;align-items:center;gap:8px;font-size:.74rem;margin:4px 0;padding:3px 4px;border-radius:6px}
+.tl-row.tl-goal{background:#eafaf1}
+.tl-min{min-width:34px;font-weight:800;color:var(--muted);font-size:.66rem;text-align:right}
+.tl-ico{font-size:.9rem}
+.tl-txt{flex:1;line-height:1.3}
+.tl-a{font-size:.64rem;color:var(--muted)}
+.tl-team{font-size:.64rem;color:var(--navy);font-weight:700}
 </style>
 
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1608,6 +1617,7 @@ function openModal(id){
     </div>`;
   }
 
+  body+=`<div id="timelineBox" style="margin-top:14px"></div>`;
   body+=`<div id="statsBox" style="margin-top:14px"></div>`;
   body+=`<div id="lineupBox" style="margin-top:14px"></div>`;
   document.getElementById('modalBody').innerHTML=body;
@@ -1615,6 +1625,7 @@ function openModal(id){
   overlay.classList.add('open');
   overlay.scrollTop=0;
   document.getElementById('modalBody').scrollTop=0;
+  if(window.fillTimeline)window.fillTimeline(m.id);
   if(window.fillStats)window.fillStats(m.id);
   if(window.fillLineup)window.fillLineup(m.id);
 }
@@ -1934,6 +1945,33 @@ var WC_STADIUMS=[{"n":"AT&T Stadium","city":"アーリントン (ダラス)","ca
       }).join('');
       box.innerHTML='<div class="lu-title">📊 スタッツ</div><div class="st-head"><span>'+m.h+'</span><span>'+m.a+'</span></div>'+rows;
     }).catch(function(){ box.innerHTML='<div class="lu-note">スタッツを取得できませんでした。</div>'; });
+  };
+  window.fillTimeline=function(id){
+    var box=document.getElementById('timelineBox'); if(!box)return;
+    var m=(typeof SCHEDULE!=='undefined')&&SCHEDULE.find(function(x){return x.id===id;}); if(!m)return;
+    if(!m.eid){ box.innerHTML=''; return; }
+    box.innerHTML='<div class="lu-note">得点・カード情報を取得中…</div>';
+    fetch('https://www.thesportsdb.com/api/v1/json/123/lookuptimeline.php?id='+m.eid).then(function(r){return r.ok?r.json():null;}).then(function(j){
+      var tl=(j&&j.timeline)||[];
+      tl=tl.filter(function(t){return t.strTimeline==='Goal'||t.strTimeline==='Card';});
+      if(!tl.length){ box.innerHTML=''; return; }
+      tl.sort(function(a,b){return (parseInt(a.intTime)||0)-(parseInt(b.intTime)||0);});
+      var rows=tl.map(function(t){
+        var det=t.strTimelineDetail||'', min=(t.intTime!=null&&t.intTime!=='')?t.intTime+"'":'';
+        var ico,txt,cls='';
+        if(t.strTimeline==='Goal'){
+          ico='⚽'; cls='tl-goal';
+          var tag = /Penalty/i.test(det)?' (PK)':(/Own/i.test(det)?' (OG)':'');
+          txt='<b>'+(t.strPlayer||'')+'</b>'+tag+(t.strAssist?' <span class="tl-a">A: '+t.strAssist+'</span>':'')+' <span class="tl-team">('+(t.strTeam||'')+')</span>';
+        } else {
+          var red=/Red/i.test(det)||/Second/i.test(det);
+          ico=red?'🟥':'🟨';
+          txt=(t.strPlayer||'')+(t.strComment&&t.strComment!=='NULL'?' <span class="tl-a">'+t.strComment+'</span>':'')+' <span class="tl-team">('+(t.strTeam||'')+')</span>';
+        }
+        return '<div class="tl-row '+cls+'"><span class="tl-min">'+min+'</span><span class="tl-ico">'+ico+'</span><span class="tl-txt">'+txt+'</span></div>';
+      }).join('');
+      box.innerHTML='<div class="lu-title">⏱️ 得点・カード</div>'+rows;
+    }).catch(function(){ box.innerHTML=''; });
   };
   if(typeof SCHEDULE!=='undefined'){ update(); setInterval(update,60000); }
 })();
