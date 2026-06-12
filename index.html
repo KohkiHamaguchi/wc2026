@@ -311,6 +311,16 @@ body{font-family:'Helvetica Neue',Arial,'Hiragino Kaku Gothic ProN',Meiryo,sans-
 .lu-num{min-width:20px;text-align:center;font-weight:800;color:var(--japan-b)}
 .lu-name{flex:1}
 .lu-pos{font-size:.58rem;color:var(--muted)}
+
+/* ── match stats ── */
+.st-head{display:flex;justify-content:space-between;font-size:.72rem;font-weight:800;color:var(--navy);margin:2px 2px 8px}
+.st-row{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:.72rem}
+.st-h,.st-a{min-width:36px;font-weight:800;color:var(--text)}
+.st-a{text-align:right}
+.st-mid{flex:1;text-align:center}
+.st-name{display:block;font-size:.62rem;color:var(--muted);margin-bottom:2px}
+.st-bar{display:block;height:5px;background:#e6371f22;border-radius:3px;overflow:hidden;background:#e0e6ef}
+.st-bar-h{display:block;height:100%;background:var(--navy)}
 </style>
 
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1598,12 +1608,14 @@ function openModal(id){
     </div>`;
   }
 
+  body+=`<div id="statsBox" style="margin-top:14px"></div>`;
   body+=`<div id="lineupBox" style="margin-top:14px"></div>`;
   document.getElementById('modalBody').innerHTML=body;
   const overlay=document.getElementById('overlay');
   overlay.classList.add('open');
   overlay.scrollTop=0;
   document.getElementById('modalBody').scrollTop=0;
+  if(window.fillStats)window.fillStats(m.id);
   if(window.fillLineup)window.fillLineup(m.id);
 }
 
@@ -1904,6 +1916,24 @@ var WC_STADIUMS=[{"n":"AT&T Stadium","city":"アーリントン (ダラス)","ca
       if(!j||!j.lineup||!j.lineup.length){ box.innerHTML='<div class="lu-note">出場メンバーは試合開始後に自動表示されます。</div>'; return; }
       box.innerHTML='<div class="lu-title">⚽ 出場メンバー</div><div class="lu-wrap">'+luSide(j.lineup,m,true)+luSide(j.lineup,m,false)+'</div>';
     }).catch(function(){ box.innerHTML='<div class="lu-note">出場メンバーを取得できませんでした。</div>'; });
+  };
+  var STATJP={'Ball Possession':'ボール支配率','Possession':'ボール支配率','Shots on Goal':'枠内シュート','Shots off Goal':'枠外シュート','Total Shots':'シュート数','Blocked Shots':'ブロックシュート','Shots insidebox':'ボックス内シュート','Shots outsidebox':'ボックス外シュート','Corner Kicks':'コーナーキック','Offsides':'オフサイド','Fouls':'ファウル','Yellow Cards':'イエローカード','Red Cards':'レッドカード','Goalkeeper Saves':'GKセーブ','Total passes':'総パス数','Passes accurate':'成功パス','Passes %':'パス成功率','expected_goals':'xG (期待得点)','Expected Goals':'xG (期待得点)'};
+  window.fillStats=function(id){
+    var box=document.getElementById('statsBox'); if(!box)return;
+    var m=(typeof SCHEDULE!=='undefined')&&SCHEDULE.find(function(x){return x.id===id;}); if(!m)return;
+    if(!m.eid){ box.innerHTML='<div class="lu-note">スタッツは試合開始後に自動表示されます。</div>'; return; }
+    box.innerHTML='<div class="lu-note">スタッツを取得中…</div>';
+    fetch('https://www.thesportsdb.com/api/v1/json/123/lookupeventstats.php?id='+m.eid).then(function(r){return r.ok?r.json():null;}).then(function(j){
+      if(!j||!j.eventstats||!j.eventstats.length){ box.innerHTML='<div class="lu-note">スタッツは試合開始後に自動表示されます。</div>'; return; }
+      var rows=j.eventstats.map(function(s){
+        var nm=STATJP[s.strStat]||s.strStat;
+        var hv=(s.intHome==null||s.intHome==='')?'-':s.intHome, av=(s.intAway==null||s.intAway==='')?'-':s.intAway;
+        var hn=parseFloat(hv), an=parseFloat(av), tot=(isFinite(hn)&&isFinite(an))?(hn+an):0;
+        var hp=tot>0?Math.round(hn/tot*100):50;
+        return '<div class="st-row"><span class="st-h">'+hv+'</span><span class="st-mid"><span class="st-name">'+nm+'</span><span class="st-bar"><span class="st-bar-h" style="width:'+hp+'%"></span></span></span><span class="st-a">'+av+'</span></div>';
+      }).join('');
+      box.innerHTML='<div class="lu-title">📊 スタッツ</div><div class="st-head"><span>'+m.h+'</span><span>'+m.a+'</span></div>'+rows;
+    }).catch(function(){ box.innerHTML='<div class="lu-note">スタッツを取得できませんでした。</div>'; });
   };
   if(typeof SCHEDULE!=='undefined'){ update(); setInterval(update,60000); }
 })();
