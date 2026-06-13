@@ -1523,40 +1523,77 @@ const GROUPS = {
 // RENDER SCHEDULE
 // ═══════════════════════════════════
 function renderSchedule(){
-  const phases=[
-    {k:"group",  label:"📋 グループステージ",  dates:"6/12(木)〜 6/28(日) JST  |  72試合"},
-    {k:"knockout",label:"⚔️ ノックアウトステージ",dates:"6/29(月)〜 7/20(月) JST  |  32試合"},
-  ];
-  let html='';
-  phases.forEach(ph=>{
-    const ms=SCHEDULE.filter(m=>m.phase===ph.k);
-    if(!ms.length)return;
-    html+=`<div class="ph" data-phase="${ph.k}"><span>${ph.label}</span><span class="ph-d">${ph.dates}</span></div>`;
-    const byDate={};
-    ms.forEach(m=>{(byDate[m.date]=byDate[m.date]||[]).push(m);});
-    Object.entries(byDate).forEach(([date,dayMs])=>{
+  // Sort a copy of SCHEDULE by ISO datetime; do not mutate original
+  const sorted=SCHEDULE.slice().sort((a,b)=>{
+    const da=a.date+'T'+(a.time||'00:00');
+    const db=b.date+'T'+(b.time||'00:00');
+    return da<db?-1:da>db?1:0;
+  });
+
+  const finished=sorted.filter(m=>m.fin);
+  const upcoming=sorted.filter(m=>!m.fin); // includes live (m.live===true)
+
+  // Helper: build a group-by-date map from an array (already sorted by time asc)
+  function buildByDate(arr){
+    const map={};
+    arr.forEach(m=>{(map[m.date]=map[m.date]||[]).push(m);});
+    return map;
+  }
+
+  // Helper: render all match cards for a given phase key (used in data-phase attrs)
+  // phase is derived from the match itself
+  function renderCards(arr, dateOrder){
+    const byDate=buildByDate(arr);
+    const dates=Object.keys(byDate);
+    if(dateOrder==='desc') dates.sort((a,b)=>a<b?1:a>b?-1:0);
+    else dates.sort((a,b)=>a<b?-1:a>b?1:0);
+    let h='';
+    dates.forEach(date=>{
+      // sort day's matches by time ascending
+      const dayMs=byDate[date].slice().sort((a,b)=>{
+        const ta=a.time||'00:00', tb=b.time||'00:00';
+        return ta<tb?-1:ta>tb?1:0;
+      });
       const d=dayMs[0];
-      html+=`<div class="dr" data-phase="${ph.k}"><span class="dy">${d.day}</span>${fmtDate(date)}</div>`;
-      html+=`<div class="mg" data-phase="${ph.k}">`;
+      const ph=d.phase||'group';
+      h+=`<div class="dr" data-phase="${ph}"><span class="dy">${d.day}</span>${fmtDate(date)}</div>`;
+      h+=`<div class="mg" data-phase="${ph}">`;
       dayMs.forEach(m=>{
         const ht=TEAMS[m.h]||{f:'🏳️'};
         const at=TEAMS[m.a]||{f:'🏳️'};
         const isFinal=m.grp==='FINAL';
         const jpCls=m.japan?' jp':'';
         const finalStyle=isFinal?' style="grid-column:1/-1;border:2px solid var(--gold);background:linear-gradient(135deg,#fffde7,#fff8e1)"':'';
-        html+=`<div class="mc g${m.grp}${jpCls}" data-id="${m.id}"${finalStyle} onclick="openModal(${m.id})">`;
-        html+=`<div class="mc-top"><span class="gtag">${grpLabel(m.grp,m.md)}</span><span class="mtime">${m.time} JST</span></div>`;
+        h+=`<div class="mc g${m.grp}${jpCls}" data-id="${m.id}"${finalStyle} onclick="openModal(${m.id})">`;
+        h+=`<div class="mc-top"><span class="gtag">${grpLabel(m.grp,m.md)}</span><span class="mtime">${m.time} JST</span></div>`;
         const hasS=(m.hs!=null&&m.as!=null);
         const mid=hasS?`<span class="score-badge">${m.hs} - ${m.as}</span>`:`<span class="vs-badge">VS</span>`;
-        html+=`<div class="teams"><span class="tm">${ht.f} ${m.h}</span>${mid}<span class="tm away">${m.a} ${at.f}</span></div>`;
-        if(m.st){const lbl=m.live?'🔴 LIVE':(hasS?'試合終了':'');if(lbl)html+=`<div class="status-line${m.live?' live':''}">${lbl}</div>`;}
-        html+=`<div class="venue-line">📍 ${m.venue}</div>`;
-        if(m.bc)html+=`<div class="broadcast">${m.bc}</div>`;
-        html+=`</div>`;
+        h+=`<div class="teams"><span class="tm">${ht.f} ${m.h}</span>${mid}<span class="tm away">${m.a} ${at.f}</span></div>`;
+        if(m.st){const lbl=m.live?'🔴 LIVE':(hasS?'試合終了':'');if(lbl)h+=`<div class="status-line${m.live?' live':''}">${lbl}</div>`;}
+        h+=`<div class="venue-line">📍 ${m.venue}</div>`;
+        if(m.bc)h+=`<div class="broadcast">${m.bc}</div>`;
+        h+=`</div>`;
       });
-      html+=`</div>`;
+      h+=`</div>`;
     });
-  });
+    return h;
+  }
+
+  let html='';
+
+  if(finished.length===0&&upcoming.length===0){
+    html='<div style="text-align:center;padding:2rem;color:var(--text-muted)">データを読み込み中…</div>';
+  } else {
+    if(finished.length>0){
+      html+=`<div class="ph" data-section="results"><span>🏆 試合結果</span></div>`;
+      html+=renderCards(finished,'desc');
+    }
+    if(upcoming.length>0){
+      html+=`<div class="ph" data-section="upcoming"><span>📅 試合スケジュール</span></div>`;
+      html+=renderCards(upcoming,'asc');
+    }
+  }
+
   document.getElementById('scheduleContent').innerHTML=html;
 }
 
@@ -1858,12 +1895,56 @@ var WC_STADIUMS=[{"n":"AT&T Stadium","city":"アーリントン (ダラス)","ca
 (function(){
   var API_BASE='https://worldcup2026.hamahk1029.workers.dev';
   var API='https://www.thesportsdb.com/api/v1/json/123/eventsseason.php?id=4429&s=2026';
+  var ESPN_SB='https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=';
+  var ESPN_SUM='https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/summary?event=';
   var FIN={'FT':1,'AET':1,'PEN':1,'AP':1,'Match Finished':1,'PEN.':1};
   var LIVES={'1H':1,'2H':1,'HT':1,'ET':1,'BT':1,'P':1,'LIVE':1,'In Play':1,'Halftime':1};
   function norm(s){
     s=(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
-    var a={czechrepublic:'czechia',unitedstates:'usa',cotedivoire:'ivorycoast',korearepublic:'southkorea',republicofkorea:'southkorea',democraticrepublicofthecongo:'drcongo',congodr:'drcongo',turkiye:'turkey',caboverde:'capeverde',capeverdeislands:'capeverde'};
+    var a={czechrepublic:'czechia',unitedstates:'usa',cotedivoire:'ivorycoast',korearepublic:'southkorea',republicofkorea:'southkorea',democraticrepublicofthecongo:'drcongo',congodr:'drcongo',turkiye:'turkey',caboverde:'capeverde',capeverdeislands:'capeverde',bosniaandherzegovina:'bosniaherzegovina',iriran:'iran'};
     return a[s]||s;
+  }
+  function espnDate(m){
+    var d=new Date(m.date+'T'+(m.time||'12:00')+':00+09:00');
+    return d.toISOString().slice(0,10).replace(/-/g,'');
+  }
+  function resolveEspn(m){
+    return new Promise(function(resolve,reject){
+      if(m.espn){resolve(m.espn);return;}
+      fetch(ESPN_SB+espnDate(m)).then(function(r){return r.ok?r.json():Promise.reject('bad');}).then(function(j){
+        var events=j.events||[];
+        for(var i=0;i<events.length;i++){
+          var e=events[i];
+          var c=e.competitions&&e.competitions[0];
+          if(!c||!c.competitors)continue;
+          var hn='',an='';
+          for(var k=0;k<c.competitors.length;k++){
+            var comp=c.competitors[k];
+            if(comp.homeAway==='home')hn=norm(comp.team&&comp.team.displayName||'');
+            else if(comp.homeAway==='away')an=norm(comp.team&&comp.team.displayName||'');
+          }
+          var x=typeof SCHEDULE!=='undefined'&&SCHEDULE.find(function(s){return (norm(s.h)===hn&&norm(s.a)===an)||(norm(s.h)===an&&norm(s.a)===hn);});
+          if(x)x.espn=e.id;
+        }
+        if(m.espn){resolve(m.espn);}else{reject('not-found');}
+      }).catch(reject);
+    });
+  }
+  function espnSummary(m){
+    if(m._sum){return Promise.resolve(m._sum);}
+    if(m._sumP){return m._sumP;}
+    m._sumP=resolveEspn(m).then(function(id){
+      return fetch(ESPN_SUM+id);
+    }).then(function(r){
+      return r.ok?r.json():Promise.reject('bad');
+    }).then(function(j){
+      m._sum=j;
+      return j;
+    }).catch(function(e){
+      m._sumP=null;
+      return Promise.reject(e);
+    });
+    return m._sumP;
   }
   function apply(events){
     events.forEach(function(e){
@@ -1954,22 +2035,16 @@ var WC_STADIUMS=[{"n":"AT&T Stadium","city":"アーリントン (ダラス)","ca
     html+='</div>';
     return html;
   }
-  window.fillLineup=function(id){
-    var box=document.getElementById('lineupBox'); if(!box)return;
-    var m=(typeof SCHEDULE!=='undefined')&&SCHEDULE.find(function(x){return x.id===id;}); if(!m)return;
+  function tsdbLineup(m,box){
     if(!m.eid){ box.innerHTML='<div class="lu-note">出場メンバーは試合開始後に自動表示されます。</div>'; return; }
-    box.innerHTML='<div class="lu-note">出場メンバーを取得中…</div>';
     fetch('https://www.thesportsdb.com/api/v1/json/123/lookuplineup.php?id='+m.eid).then(function(r){return r.ok?r.json():null;}).then(function(j){
       if(!j||!j.lineup||!j.lineup.length){ box.innerHTML='<div class="lu-note">出場メンバーは試合開始後に自動表示されます。</div>'; return; }
       box.innerHTML='<div class="lu-title">⚽ 出場メンバー</div><div class="lu-wrap">'+luSide(j.lineup,m,true)+luSide(j.lineup,m,false)+'</div>';
     }).catch(function(){ box.innerHTML='<div class="lu-note">出場メンバーを取得できませんでした。</div>'; });
-  };
+  }
   var STATJP={'Ball Possession':'ボール支配率','Possession':'ボール支配率','Shots on Goal':'枠内シュート','Shots off Goal':'枠外シュート','Total Shots':'シュート数','Blocked Shots':'ブロックシュート','Shots insidebox':'ボックス内シュート','Shots outsidebox':'ボックス外シュート','Corner Kicks':'コーナーキック','Offsides':'オフサイド','Fouls':'ファウル','Yellow Cards':'イエローカード','Red Cards':'レッドカード','Goalkeeper Saves':'GKセーブ','Total passes':'総パス数','Passes accurate':'成功パス','Passes %':'パス成功率','expected_goals':'xG (期待得点)','Expected Goals':'xG (期待得点)'};
-  window.fillStats=function(id){
-    var box=document.getElementById('statsBox'); if(!box)return;
-    var m=(typeof SCHEDULE!=='undefined')&&SCHEDULE.find(function(x){return x.id===id;}); if(!m)return;
+  function tsdbStats(m,box){
     if(!m.eid){ box.innerHTML='<div class="lu-note">スタッツは試合開始後に自動表示されます。</div>'; return; }
-    box.innerHTML='<div class="lu-note">スタッツを取得中…</div>';
     fetch('https://www.thesportsdb.com/api/v1/json/123/lookupeventstats.php?id='+m.eid).then(function(r){return r.ok?r.json():null;}).then(function(j){
       if(!j||!j.eventstats||!j.eventstats.length){ box.innerHTML='<div class="lu-note">スタッツは試合開始後に自動表示されます。</div>'; return; }
       var rows=j.eventstats.map(function(s){
@@ -1981,12 +2056,9 @@ var WC_STADIUMS=[{"n":"AT&T Stadium","city":"アーリントン (ダラス)","ca
       }).join('');
       box.innerHTML='<div class="lu-title">📊 スタッツ</div><div class="st-head"><span>'+m.h+'</span><span>'+m.a+'</span></div>'+rows;
     }).catch(function(){ box.innerHTML='<div class="lu-note">スタッツを取得できませんでした。</div>'; });
-  };
-  window.fillTimeline=function(id){
-    var box=document.getElementById('timelineBox'); if(!box)return;
-    var m=(typeof SCHEDULE!=='undefined')&&SCHEDULE.find(function(x){return x.id===id;}); if(!m)return;
+  }
+  function tsdbTimeline(m,box){
     if(!m.eid){ box.innerHTML=''; return; }
-    box.innerHTML='<div class="lu-note">得点・カード情報を取得中…</div>';
     fetch('https://www.thesportsdb.com/api/v1/json/123/lookuptimeline.php?id='+m.eid).then(function(r){return r.ok?r.json():null;}).then(function(j){
       var tl=(j&&j.timeline)||[];
       tl=tl.filter(function(t){return t.strTimeline==='Goal'||t.strTimeline==='Card';});
@@ -2008,6 +2080,137 @@ var WC_STADIUMS=[{"n":"AT&T Stadium","city":"アーリントン (ダラス)","ca
       }).join('');
       box.innerHTML='<div class="lu-title">⏱️ 得点・カード</div>'+rows;
     }).catch(function(){ box.innerHTML=''; });
+  }
+  window.fillTimeline=function(id){
+    var box=document.getElementById('timelineBox'); if(!box)return;
+    var m=(typeof SCHEDULE!=='undefined')&&SCHEDULE.find(function(x){return x.id===id;}); if(!m)return;
+    box.innerHTML='<div class="lu-note">得点・カード情報を取得中…</div>';
+    espnSummary(m).then(function(j){
+      var kev=(j.keyEvents||[]).filter(function(k){
+        var t=(k.type&&k.type.text)||'';
+        return (/goal/i.test(t)&&!/missed|cancelled/i.test(t))||/card/i.test(t);
+      });
+      if(!kev.length){ box.innerHTML=''; return; }
+      kev.sort(function(a,b){return (parseInt((a.clock&&a.clock.displayValue)||0)||0)-(parseInt((b.clock&&b.clock.displayValue)||0)||0);});
+      var rows=kev.map(function(k){
+        var t=(k.type&&k.type.text)||'';
+        var min=(k.clock&&k.clock.displayValue)||'';
+        if(min)min=min+"'";
+        var ico,txt,cls='';
+        var teamRaw=k.team&&k.team.displayName||'';
+        var teamLabel=teamRaw;
+        if(teamRaw){
+          var tn=norm(teamRaw);
+          if(tn===norm(m.h))teamLabel=m.h;
+          else if(tn===norm(m.a))teamLabel=m.a;
+        }
+        if(/goal/i.test(t)){
+          ico='⚽'; cls='tl-goal';
+          var scorer=(k.participants&&k.participants[0]&&k.participants[0].athlete&&k.participants[0].athlete.displayName)||'';
+          var assist=(k.participants&&k.participants[1]&&k.participants[1].athlete&&k.participants[1].athlete.displayName)||'';
+          var ktext=t+' '+(k.text||'');
+          var isPK=/penalty/i.test(ktext);
+          var isOG=/own goal/i.test(ktext);
+          var tag=isPK?' (PK)':(isOG?' (OG)':'');
+          var assistHtml='';
+          if(assist&&!isPK&&!isOG)assistHtml=' <span class="tl-a">A: '+assist+'</span>';
+          txt='<b>'+scorer+'</b>'+tag+assistHtml+(teamLabel?' <span class="tl-team">('+teamLabel+')</span>':'');
+        } else {
+          var isRed=/red/i.test(t);
+          ico=isRed?'🟥':'🟨';
+          var player=(k.participants&&k.participants[0]&&k.participants[0].athlete&&k.participants[0].athlete.displayName)||'';
+          txt=player+(teamLabel?' <span class="tl-team">('+teamLabel+')</span>':'');
+        }
+        return '<div class="tl-row '+cls+'"><span class="tl-min">'+min+'</span><span class="tl-ico">'+ico+'</span><span class="tl-txt">'+txt+'</span></div>';
+      }).join('');
+      box.innerHTML='<div class="lu-title">⏱️ 得点・カード</div>'+rows;
+    }).catch(function(){ tsdbTimeline(m,box); });
+  };
+  var ESPN_STAT_KEYS=[
+    {key:'possessionPct',label:'ボール支配率',pct:true},
+    {key:'totalShots',label:'シュート数',pct:false},
+    {key:'shotsOnTarget',label:'枠内シュート',pct:false},
+    {key:'blockedShots',label:'ブロックシュート',pct:false},
+    {key:'wonCorners',label:'コーナーキック',pct:false},
+    {key:'offsides',label:'オフサイド',pct:false},
+    {key:'foulsCommitted',label:'ファウル',pct:false},
+    {key:'yellowCards',label:'イエローカード',pct:false},
+    {key:'redCards',label:'レッドカード',pct:false},
+    {key:'saves',label:'GKセーブ',pct:false},
+    {key:'totalPasses',label:'総パス数',pct:false},
+    {key:'accuratePasses',label:'成功パス',pct:false}
+  ];
+  window.fillStats=function(id){
+    var box=document.getElementById('statsBox'); if(!box)return;
+    var m=(typeof SCHEDULE!=='undefined')&&SCHEDULE.find(function(x){return x.id===id;}); if(!m)return;
+    box.innerHTML='<div class="lu-note">スタッツを取得中…</div>';
+    espnSummary(m).then(function(j){
+      var teams=j.boxscore&&j.boxscore.teams;
+      if(!teams||!teams.length){ tsdbStats(m,box); return; }
+      var homeTeam=null,awayTeam=null;
+      for(var i=0;i<teams.length;i++){
+        var dn=norm(teams[i].team&&teams[i].team.displayName||'');
+        if(dn===norm(m.h))homeTeam=teams[i];
+        else if(dn===norm(m.a))awayTeam=teams[i];
+      }
+      if(!homeTeam)homeTeam=teams[0];
+      if(!awayTeam)awayTeam=teams[1]||teams[0];
+      function getStat(team,key){
+        var stats=team&&team.statistics||[];
+        for(var si=0;si<stats.length;si++){if(stats[si].name===key)return stats[si].displayValue;}
+        return null;
+      }
+      var rows='';
+      for(var ki=0;ki<ESPN_STAT_KEYS.length;ki++){
+        var sk=ESPN_STAT_KEYS[ki];
+        var hv=getStat(homeTeam,sk.key);
+        var av=getStat(awayTeam,sk.key);
+        if(hv===null&&av===null)continue;
+        var hvd=(hv!=null?hv:'-')+(sk.pct&&hv!=null?'%':'');
+        var avd=(av!=null?av:'-')+(sk.pct&&av!=null?'%':'');
+        var hn=parseFloat(hv), an=parseFloat(av), tot=(isFinite(hn)&&isFinite(an))?(hn+an):0;
+        var hp=tot>0?Math.round(hn/tot*100):50;
+        rows+='<div class="st-row"><span class="st-h">'+hvd+'</span><span class="st-mid"><span class="st-name">'+sk.label+'</span><span class="st-bar"><span class="st-bar-h" style="width:'+hp+'%"></span></span></span><span class="st-a">'+avd+'</span></div>';
+      }
+      if(!rows){ tsdbStats(m,box); return; }
+      box.innerHTML='<div class="lu-title">📊 スタッツ</div><div class="st-head"><span>'+m.h+'</span><span>'+m.a+'</span></div>'+rows;
+    }).catch(function(){ tsdbStats(m,box); });
+  };
+  window.fillLineup=function(id){
+    var box=document.getElementById('lineupBox'); if(!box)return;
+    var m=(typeof SCHEDULE!=='undefined')&&SCHEDULE.find(function(x){return x.id===id;}); if(!m)return;
+    box.innerHTML='<div class="lu-note">出場メンバーを取得中…</div>';
+    espnSummary(m).then(function(j){
+      var rosters=j.rosters;
+      if(!rosters||rosters.length<2){ tsdbLineup(m,box); return; }
+      var homeRoster=null,awayRoster=null;
+      for(var i=0;i<rosters.length;i++){
+        var r=rosters[i];
+        var dn=norm(r.team&&r.team.displayName||'');
+        if(dn===norm(m.h))homeRoster=r;
+        else if(dn===norm(m.a))awayRoster=r;
+        else if(r.homeAway==='home'&&!homeRoster)homeRoster=r;
+        else if(r.homeAway==='away'&&!awayRoster)awayRoster=r;
+      }
+      if(!homeRoster)homeRoster=rosters[0];
+      if(!awayRoster)awayRoster=rosters[1];
+      function hasEntries(r){return r&&r.roster&&r.roster.length>0;}
+      if(!hasEntries(homeRoster)&&!hasEntries(awayRoster)){ tsdbLineup(m,box); return; }
+      function espnCol(r,teamName){
+        var roster=r&&r.roster||[];
+        var st=roster.filter(function(p){return p.starter;});
+        var sub=roster.filter(function(p){return !p.starter;});
+        function row(p){
+          return '<div class="lu-row"><span class="lu-num">'+(p.jersey||'')+'</span><span class="lu-name">'+(p.athlete&&p.athlete.displayName||'')+'</span><span class="lu-pos">'+(p.position&&p.position.abbreviation||'')+'</span></div>';
+        }
+        var html='<div class="lu-col"><div class="lu-team">'+teamName+'</div>';
+        html+='<div class="lu-sub-h">先発</div>'+(st.length?st.map(row).join(''):'<div class="lu-row">—</div>');
+        if(sub.length)html+='<div class="lu-sub-h">控え</div>'+sub.map(row).join('');
+        html+='</div>';
+        return html;
+      }
+      box.innerHTML='<div class="lu-title">⚽ 出場メンバー</div><div class="lu-wrap">'+espnCol(homeRoster,m.h)+espnCol(awayRoster,m.a)+'</div>';
+    }).catch(function(){ tsdbLineup(m,box); });
   };
   if(typeof SCHEDULE!=='undefined'){ update(); setInterval(update,60000); updateEids(); setInterval(updateEids,300000); }
 })();
